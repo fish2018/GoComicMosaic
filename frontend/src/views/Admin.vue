@@ -1367,6 +1367,22 @@
               <div v-if="pendingResources.length > 0" class="badge-count badge-inline">{{ pendingResources.length }}</div>
             </h4>
           </div>
+          <!-- 批量操作按钮 -->
+          <div v-if="pendingResources.length > 0" class="header-actions">
+            <div v-if="selectedPendingResources.length > 0" class="batch-actions">
+              <span class="selected-count">已选择 {{ selectedPendingResources.length }} 项</span>
+              <button 
+                type="button"
+                class="btn-custom btn-accent btn-sm"
+                @click="batchRejectResources"
+                :disabled="batchRejectLoading"
+              >
+                <div v-if="batchRejectLoading" class="spinner small-spinner"></div>
+                <i v-else class="bi bi-x-circle"></i>
+                <span class="btn-text">{{ batchRejectLoading ? '处理中...' : '批量拒绝' }}</span>
+              </button>
+            </div>
+          </div>
         </div>
         <div class="card-body">
           <div v-if="loadingPending" class="loading-inline">
@@ -1381,6 +1397,14 @@
             <table class="custom-table">
                 <thead>
                   <tr>
+                  <th class="checkbox-column">
+                    <input 
+                      type="checkbox"
+                      :checked="isAllPendingSelected"
+                      @change="toggleAllPending"
+                      :indeterminate="isIndeterminate"
+                    />
+                  </th>
                   <th>ID</th>
                   <th>标题</th>
                   <th>类型</th>
@@ -1392,6 +1416,13 @@
                 </thead>
                 <tbody>
                   <tr v-for="resource in pendingResources" :key="resource.id">
+                  <td class="checkbox-column">
+                    <input 
+                      type="checkbox"
+                      :value="resource.id"
+                      v-model="selectedPendingResources"
+                    />
+                  </td>
                   <td><span class="id-badge">#{{ resource.id }}</span></td>
                     <td>{{ resource.title || resource.title_en }}</td>
                   <td><span class="type-badge">{{ resource.resource_type }}</span></td>
@@ -1789,6 +1820,8 @@ import { ElMessage } from 'element-plus'
 const router = useRouter()
 const resources = ref([])
 const pendingResources = ref([])
+const selectedPendingResources = ref([])
+const batchRejectLoading = ref(false)
 const loading = ref(true)
 const loadingPending = ref(true)
 const loadingUsers = ref(true)
@@ -1860,6 +1893,67 @@ const formatDate = (dateString) => {
     hour: '2-digit',
     minute: '2-digit'
   }).format(date)
+}
+
+// 批量操作相关计算属性
+const isAllPendingSelected = computed(() => {
+  if (pendingResources.value.length === 0) return false
+  return selectedPendingResources.value.length === pendingResources.value.length
+})
+
+const isIndeterminate = computed(() => {
+  return selectedPendingResources.value.length > 0 && selectedPendingResources.value.length < pendingResources.value.length
+})
+
+// 全选/取消全选
+const toggleAllPending = (event) => {
+  if (event.target.checked) {
+    selectedPendingResources.value = pendingResources.value.map(r => r.id)
+  } else {
+    selectedPendingResources.value = []
+  }
+}
+
+// 批量拒绝资源
+const batchRejectResources = async () => {
+  if (selectedPendingResources.value.length === 0) {
+    ElMessage.warning('请选择要拒绝的资源')
+    return
+  }
+
+  const confirmMsg = `确定要拒绝选中的 ${selectedPendingResources.value.length} 个资源吗？`
+  if (!confirm(confirmMsg)) {
+    return
+  }
+
+  batchRejectLoading.value = true
+  
+  try {
+    // 使用新的批量拒绝API
+    const response = await axios.post('/api/resources/batch-reject', {
+      resource_ids: selectedPendingResources.value,
+      notes: '批量拒绝'
+    })
+    
+    const data = response.data
+    
+    if (data.success_count > 0) {
+      ElMessage.success(`成功拒绝 ${data.success_count} 个资源`)
+      // 重新加载待审批资源列表
+      await fetchPendingResources()
+      // 清空选中项
+      selectedPendingResources.value = []
+    }
+
+    if (data.failed_ids && data.failed_ids.length > 0) {
+      ElMessage.error(`${data.failed_ids.length} 个资源拒绝失败`)
+    }
+  } catch (err) {
+    console.error('批量拒绝失败:', err)
+    ElMessage.error('批量拒绝失败，请稍后重试')
+  } finally {
+    batchRejectLoading.value = false
+  }
 }
 
 // 获取所有已审批资源

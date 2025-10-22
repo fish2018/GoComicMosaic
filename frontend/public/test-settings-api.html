@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试设置API</title>
+    <style>
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            font-family: monospace;
+            resize: vertical;
+        }
+        button {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #4338ca;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            max-height: 300px;
+            overflow: auto;
+        }
+        .success {
+            background-color: #d1fae5;
+            border-color: #10b981;
+        }
+        .error {
+            background-color: #fee2e2;
+            border-color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <h1>设置API测试工具</h1>
+    
+    <div class="card">
+        <h2>测试页脚设置API</h2>
+        <p>这个工具可以帮助您测试页脚设置API，发送PUT请求到 <code>/api/settings/footer</code> 端点。</p>
+        
+        <div>
+            <label for="token"><strong>认证令牌 (Bearer Token)</strong></label>
+            <input type="text" id="token" style="width: 100%; padding: 8px; margin: 5px 0 15px;" placeholder="粘贴您的认证令牌">
+        </div>
+        
+        <div>
+            <label for="payload"><strong>请求数据 (JSON)</strong></label>
+            <textarea id="payload" placeholder="输入JSON格式的请求数据">{
+  "setting_value": {
+    "links": [
+      { "text": "关于我们", "url": "/about", "type": "internal" },
+      { "text": "GitHub", "url": "https://github.com/fish2018/GoComicMosaic", "icon": "bi bi-github", "type": "external", "title": "查看GitHub源码" }
+    ],
+    "copyright": "© 2025 美漫资源共建. 保留所有权利",
+    "show_visitor_count": true
+  }
+}</textarea>
+        </div>
+        
+        <div>
+            <button id="sendRequest">发送PUT请求</button>
+            <button id="checkToken" style="background: #059669;">检查令牌</button>
+        </div>
+        
+        <div id="result" class="result" style="display: none;">
+            待发送请求...
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 从localStorage中获取token
+            try {
+                const savedToken = localStorage.getItem('accessToken');
+                if (savedToken) {
+                    document.getElementById('token').value = savedToken;
+                    console.log('已从localStorage加载令牌');
+                }
+            } catch (e) {
+                console.error('读取localStorage失败:', e);
+            }
+            
+            // 发送请求按钮
+            document.getElementById('sendRequest').addEventListener('click', async function() {
+                const token = document.getElementById('token').value.trim();
+                const payload = document.getElementById('payload').value.trim();
+                const resultElement = document.getElementById('result');
+                
+                resultElement.style.display = 'block';
+                resultElement.className = 'result';
+                resultElement.textContent = '发送请求中...';
+                
+                if (!token) {
+                    resultElement.textContent = '错误: 请提供认证令牌';
+                    resultElement.className = 'result error';
+                    return;
+                }
+                
+                try {
+                    let payloadObj = JSON.parse(payload);
+                    
+                    // 创建一个XHR请求
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', '/api/settings/footer', true);
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                    xhr.withCredentials = true;
+                    
+                    xhr.onload = function() {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resultElement.textContent = `请求成功 (${xhr.status} ${xhr.statusText}):\n\n${xhr.responseText}`;
+                            resultElement.className = 'result success';
+                        } else {
+                            resultElement.textContent = `请求失败 (${xhr.status} ${xhr.statusText}):\n\n${xhr.responseText}`;
+                            resultElement.className = 'result error';
+                        }
+                    };
+                    
+                    xhr.onerror = function() {
+                        resultElement.textContent = '网络错误，请检查控制台';
+                        resultElement.className = 'result error';
+                    };
+                    
+                    const requestStart = new Date();
+                    xhr.send(payload);
+                    console.log('已发送请求:', payload);
+                    console.log('请求头:', {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token.substring(0, 10)}...` // 只显示部分令牌
+                    });
+                } catch (e) {
+                    resultElement.textContent = `请求错误: ${e.message}`;
+                    resultElement.className = 'result error';
+                }
+            });
+            
+            // 检查令牌按钮
+            document.getElementById('checkToken').addEventListener('click', function() {
+                const token = document.getElementById('token').value.trim();
+                const resultElement = document.getElementById('result');
+                
+                resultElement.style.display = 'block';
+                
+                if (!token) {
+                    resultElement.textContent = '错误: 请提供认证令牌';
+                    resultElement.className = 'result error';
+                    return;
+                }
+                
+                try {
+                    // 尝试解码令牌
+                    const tokenParts = token.split('.');
+                    if (tokenParts.length !== 3) {
+                        resultElement.textContent = '无效的JWT令牌格式';
+                        resultElement.className = 'result error';
+                        return;
+                    }
+                    
+                    // 解码payload部分
+                    const payload = JSON.parse(atob(tokenParts[1]));
+                    const expDate = new Date(payload.exp * 1000);
+                    const now = new Date();
+                    const isExpired = expDate < now;
+                    
+                    resultElement.textContent = `令牌信息:\n\n`;
+                    resultElement.textContent += `有效期至: ${expDate.toLocaleString()}\n`;
+                    resultElement.textContent += `当前时间: ${now.toLocaleString()}\n`;
+                    resultElement.textContent += `是否过期: ${isExpired ? '已过期' : '有效'}\n\n`;
+                    resultElement.textContent += `载荷数据:\n${JSON.stringify(payload, null, 2)}`;
+                    
+                    resultElement.className = isExpired ? 'result error' : 'result success';
+                } catch (e) {
+                    resultElement.textContent = `令牌解析错误: ${e.message}\n可能不是有效的JWT格式`;
+                    resultElement.className = 'result error';
+                }
+            });
+        });
+    </script>
+</body>
+</html> 

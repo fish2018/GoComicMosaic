@@ -1292,4 +1292,121 @@ func GetResourceApprovalRecords(c *gin.Context) {
 		"resource": resource,
 		"records":  records,
 	})
+}
+
+// BatchRejectResources 批量拒绝资源 - 仅管理员可访问
+func BatchRejectResources(c *gin.Context) {
+	// 解析请求体中的资源ID列表
+	var request struct {
+		ResourceIDs []int  `json:"resource_ids" binding:"required"`
+		Notes       string `json:"notes"`
+	}
+
+	if errBind := c.ShouldBindJSON(&request); errBind != nil {
+		log.Printf("解析请求体失败: %v", errBind)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
+		return
+	}
+
+	if len(request.ResourceIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "资源ID列表为空"})
+		return
+	}
+
+	log.Printf("批量拒绝资源，ID数量: %d, IDs: %v", len(request.ResourceIDs), request.ResourceIDs)
+
+	// 批量处理资源
+	var successCount int
+	var failedIDs []int
+
+	for _, resourceID := range request.ResourceIDs {
+		// 检查资源是否存在且为待审批状态
+		var resource models.Resource
+		errGet := models.DB.Get(&resource, `SELECT * FROM resources WHERE id = ?`, resourceID)
+		if errGet != nil {
+			log.Printf("资源 %d 未找到: %v", resourceID, errGet)
+			failedIDs = append(failedIDs, resourceID)
+			continue
+		}
+
+		// 检查资源状态
+		if resource.Status != models.ResourceStatusPending {
+			log.Printf("资源 %d 不是待审批状态: %s", resourceID, resource.Status)
+			failedIDs = append(failedIDs, resourceID)
+			continue
+		}
+
+		// 更新资源状态为拒绝
+		resource.Status = models.ResourceStatusRejected
+		resource.UpdatedAt = time.Now()
+
+		// 创建审批记录
+		approvalRecord := models.ApprovalRecord{
+			ResourceID:      resourceID,
+			Status:          models.ResourceStatusRejected,
+			FieldApprovals:  models.JsonMap{},
+			FieldRejections: models.JsonMap{},
+			ApprovedImages:  []string{},
+			RejectedImages:  []string{},
+			Notes:           request.Notes,
+			ApprovedLinks:   models.JsonMap{},
+			RejectedLinks:   models.JsonMap{},
+			CreatedAt:       time.Now(),
+		}
+
+		// 开始事务
+		tx := models.DB.MustBegin()
+
+		// 更新资源状态
+		_, errUpdate := tx.Exec(
+			`UPDATE resources SET status = ?, updated_at = ? WHERE id = ?`,
+			resource.Status, resource.UpdatedAt, resourceID,
+		)
+
+		if errUpdate != nil {
+			log.Printf("更新资源 %d 状态失败: %v", resourceID, errUpdate)
+			tx.Rollback()
+			failedIDs = append(failedIDs, resourceID)
+			continue
+		}
+
+		// 插入审批记录
+		_, errInsert := tx.Exec(
+			`INSERT INTO approval_records (
+				resource_id, status, field_approvals, field_rejections,
+				approved_images, rejected_images, poster_image, notes,
+				approved_links, rejected_links, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			approvalRecord.ResourceID, approvalRecord.Status,
+			approvalRecord.FieldApprovals, approvalRecord.FieldRejections,
+			models.JsonList(approvalRecord.ApprovedImages), models.JsonList(approvalRecord.RejectedImages),
+			"", approvalRecord.Notes,
+			approvalRecord.ApprovedLinks, approvalRecord.RejectedLinks,
+			approvalRecord.CreatedAt,
+		)
+
+		if errInsert != nil {
+			log.Printf("创建资源 %d 的审批记录失败: %v", resourceID, errInsert)
+			tx.Rollback()
+			failedIDs = append(failedIDs, resourceID)
+			continue
+		}
+
+		// 提交事务
+		if errCommit := tx.Commit(); errCommit != nil {
+			log.Printf("提交资源 %d 的事务失败: %v", resourceID, errCommit)
+			failedIDs = append(failedIDs, resourceID)
+			continue
+		}
+
+		successCount++
+		log.Printf("成功拒绝资源 %d", resourceID)
+	}
+
+	log.Printf("批量拒绝完成，成功: %d, 失败: %d", successCount, len(failedIDs))
+	c.JSON(http.StatusOK, gin.H{
+		"success_count": successCount,
+		"failed_ids":    failedIDs,
+		"total":         len(request.ResourceIDs),
+	})
 } 

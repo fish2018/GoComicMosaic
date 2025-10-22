@@ -136,6 +136,7 @@ func SetupRoutes(router *gin.Engine) {
 			adminResources.GET("/:id/supplement", GetResourceSupplement)
 			adminResources.PUT("/:id", UpdateResource)
 			adminResources.PUT("/:id/approve", ApproveResource)
+			adminResources.POST("/batch-reject", BatchRejectResources)
 			adminResources.DELETE("/:id", DeleteResource)
 			adminResources.DELETE("/:id/record", DeleteApprovalRecord)
 			adminResources.DELETE("/batch-delete-records", DeleteApprovalRecords)
